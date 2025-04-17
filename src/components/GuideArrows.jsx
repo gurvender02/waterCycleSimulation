@@ -9,7 +9,7 @@ const GuideArrows = ({ sun, cloudFormed, rainParticles }) => {
           position: 'absolute',
           top: 50,
           left: 500,
-          color: 'rgba(255, 0, 0, 0.7)',
+          color: 'rgba(219, 227, 62, 0.7)',
           fontSize: '20px',
           fontWeight: 'bold'
         }}>
@@ -33,7 +33,7 @@ const GuideArrows = ({ sun, cloudFormed, rainParticles }) => {
           />
           <polygon
             points={`${sun.x - 160},${window.innerHeight - 60} ${sun.x - 140},${window.innerHeight - 60} ${sun.x - 150},${window.innerHeight - 50}`}
-            fill="rgba(255, 0, 0, 0.7)"
+            fill="rgba(223, 234, 68, 0.7)"
           />
         </svg>
       </>

@@ -1,374 +1,210 @@
+// WaterCycleSimulation.jsx  – optimized & feature‑complete
 import React, { useState, useEffect, useRef } from 'react';
-import Sun from '../components/Sun';
-import Lake from '../components/Lake';
-import Cloud from '../components/Cloud';
-import Wave from '../components/Wave';
-import Thunder from '../components/Thunder';
-import GuideArrows from '../components/GuideArrows';
-import AudioManager from '../components/AudioManager';
+import Sun            from '../components/Sun';
+import Lake           from '../components/Lake';
+import Cloud          from '../components/Cloud';
+import Wave           from '../components/Wave';
+import Thunder        from '../components/Thunder';
+import AudioManager   from '../components/AudioManager';
+import GuideArrows    from '../components/GuideArrows';
+import VaporParticle  from '../components/VaporParticle';
+import RainParticle   from '../components/RainParticle';
 import usePoseDetection from '../hooks/usePoseDetection';
-import useAnimation from '../hooks/useAnimation';
+
 import { WAVE_CONFIGS, SUN_CONFIG, LAKE_CONFIG } from '../utils/constants';
 import { mapValue, distance } from '../utils/helpers';
-import VaporParticle from '../components/VaporParticle';
-import RainParticle from '../components/RainParticle'
 
-const WaterCycleSimulation = () => {
-  const [sun, setSun] = useState({
-    x: SUN_CONFIG.initialX,
-    y: SUN_CONFIG.initialY,
-    size: SUN_CONFIG.size,
-    isDragging: false
-  });
-  const [clouds, setClouds] = useState([]);
+/* ───────────────────────────────────────── component */
+export default function WaterCycleSimulation() {
+  /* ---------------- state */
+  const hands = usePoseDetection();                 // hand‑pose hook
+  const [sun,   setSun]   = useState({ x: SUN_CONFIG.initialX, y: SUN_CONFIG.initialY, size: SUN_CONFIG.size });
+  const [clouds,         setClouds]         = useState([]);
   const [vaporParticles, setVaporParticles] = useState([]);
-  const [rainParticles, setRainParticles] = useState([]);
   const [cloudParticles, setCloudParticles] = useState([]);
+  const [rainParticles,  setRainParticles]  = useState([]);
+  const [cloudFormed,    setCloudFormed]    = useState(false);
   const [thunder, setThunder] = useState({ active: false, frames: 0, pos1: null, pos2: null });
-  const [waveOffsets, setWaveOffsets] = useState([0, 0, 0, 0, 0, 0]);
-  const [cloudFormed, setCloudFormed] = useState(false);
-  const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
+  const [waveOffsets, setWaveOffsets] = useState(WAVE_CONFIGS.map(() => 0));
+  const [mousePos,   setMousePos]   = useState({ x: 0, y: 0 });
   const [isMouseDown, setIsMouseDown] = useState(false);
-  
-  const hands = usePoseDetection();
-  const containerRef = useRef();
 
-  // Handle sun interaction
-  const handleSunInteraction = () => {
-    let isDragging = false;
-    let newX = sun.x;
-    let newY = sun.y;
+  const wrapRef = useRef();
 
-    // Check if sun is already being dragged
-    if (sun.isDragging) {
-      newX = mousePos.x;
-      newY = mousePos.y;
-      isDragging = true;
-    } 
-    // Check hand interactions if sun is not already being dragged
-    else if (hands.length > 0) {
-      for (const hand of hands) {
-        if (distance(hand.x, hand.y, sun.x, sun.y) < sun.size / 2) {
-          newX = hand.x;
-          newY = hand.y;
-          isDragging = true;
-          break;
-        }
-      }
-    }
-    // Check mouse interactions if sun is not already being dragged
-    else if (isMouseDown) {
-      if (distance(mousePos.x, mousePos.y, sun.x, sun.y) < sun.size / 2) {
-        newX = mousePos.x;
-        newY = mousePos.y;
-        isDragging = true;
-      }
-    }
-
-    // Limit sun's movement to stay within the visible area
-    newX = Math.max(sun.size/2, Math.min(window.innerWidth - sun.size/2, newX));
-    newY = Math.max(sun.size/2, Math.min(window.innerHeight - 100, newY));
-
-    // Update sun size based on height
-    const distanceToLake = window.innerHeight - newY;
-    const newSize = mapValue(
-      distanceToLake,
-      0,
-      window.innerHeight,
-      SUN_CONFIG.size * 2,
-      SUN_CONFIG.size
-    );
-
-    setSun(prev => ({
-      ...prev,
-      x: newX,
-      y: newY,
-      size: newSize,
-      isDragging
-    }));
-  };
-
-  // Handle evaporation
-  const handleEvaporation = () => {
-    if (sun.y > window.innerHeight - 300 && !cloudFormed) {
-      // Add new vapor particles
-      const newParticles = [...Array(2)].map(() => ({
-        x: Math.random() * window.innerWidth,
-        y: window.innerHeight - LAKE_CONFIG.height - 10,
-        velX: Math.random() * 1 - 0.5,
-        velY: -1 - Math.random() * 2,
-        alpha: 255
-      }));
-      
-      setVaporParticles(prev => [...prev, ...newParticles]);
-    }
-
-    // Update existing vapor particles
-    setVaporParticles(prev => 
-      prev.map(p => ({
-        ...p,
-        x: p.x + p.velX,
-        y: p.y + p.velY,
-        alpha: p.alpha - 2
-      })).filter(p => p.alpha > 0)
-    );
-
-    // Move particles to cloud particles when they reach top
-    const finishedParticles = vaporParticles.filter(p => p.alpha <= 0);
-    if (finishedParticles.length > 0) {
-      setCloudParticles(prev => [
-        ...prev,
-        ...finishedParticles.map(p => ({ x: p.x, y: p.y }))
-      ]);
-    }
-
-    // Form clouds when enough particles accumulate
-    if (cloudParticles.length > 150 && !cloudFormed) {
+  /* ---------------- once clouds form */
+  useEffect(() => {
+    if (!cloudFormed && cloudParticles.length > 150) {
       setCloudFormed(true);
       setClouds([
         { x: 150, y: 100 },
         { x: window.innerWidth / 2, y: 80 },
-        { x: window.innerWidth - 150, y: 100 }
+        { x: window.innerWidth - 150, y: 100 },
       ]);
-      setSun(prev => ({
-        ...prev,
-        x: SUN_CONFIG.initialX,
-        y: SUN_CONFIG.initialY,
-        size: SUN_CONFIG.size
-      }));
+      setSun({ x: SUN_CONFIG.initialX, y: SUN_CONFIG.initialY, size: SUN_CONFIG.size });
+    }
+  }, [cloudParticles, cloudFormed]);
+
+  /* ---------------- pointer updates */
+  const onMove = e => {
+    if (!wrapRef.current) return;
+    const r = wrapRef.current.getBoundingClientRect();
+    setMousePos({ x: e.clientX - r.left, y: e.clientY - r.top });
+  };
+
+  /* ---------------- sun drag (hand > mouse) */
+  const updateSun = () => {
+    let dragged = false;
+
+    for (const hand of hands) {
+      if (distance(hand.x, hand.y, sun.x, sun.y) < sun.size / 2) {
+        const dLake = window.innerHeight - hand.y;
+        setSun({ x: hand.x, y: hand.y, size: mapValue(dLake, 0, window.innerHeight, SUN_CONFIG.size * 2, SUN_CONFIG.size) });
+        dragged = true;
+        break;
+      }
+    }
+    if (!dragged && isMouseDown) {
+      const cx = Math.max(sun.size / 2, Math.min(window.innerWidth  - sun.size / 2, mousePos.x));
+      const cy = Math.max(sun.size / 2, Math.min(window.innerHeight - 100,          mousePos.y));
+      const dLake = window.innerHeight - cy;
+      setSun({ x: cx, y: cy, size: mapValue(dLake, 0, window.innerHeight, SUN_CONFIG.size * 2, SUN_CONFIG.size) });
     }
   };
 
-  // Handle cloud movement and interactions
-  const handleClouds = () => {
-    let updatedClouds = [...clouds];
-    let thunderActivated = false;
+  /* ---------------- evaporation & vapor */
+  const updateEvaporation = () => {
+    /* spawn */
+    if (sun.y > window.innerHeight - 300 && !cloudFormed) {
+      setVaporParticles(v => [
+        ...v,
+        ...Array.from({ length: 2 }, () => ({
+          x: Math.random() * window.innerWidth,
+          y: window.innerHeight - LAKE_CONFIG.height - 10,
+          velX: Math.random() - 0.5,
+          velY: -1 - Math.random() * 2,
+          alpha: 255
+        }))
+      ]);
+    }
 
-    // Check for hand interactions with clouds
-    if (hands.length > 0) {
-      updatedClouds = updatedClouds.map(cloud => {
-        for (const hand of hands) {
-          if (distance(hand.x, hand.y, cloud.x, cloud.y) < 50) {
-            return { ...cloud, x: hand.x, y: hand.y };
+    /* update + harvest in one sweep */
+    setVaporParticles(vPrev => {
+      const toCloud = [];
+      const next = vPrev
+        .map(p => {
+          const n = { ...p, x: p.x + p.velX, y: p.y + p.velY, alpha: p.alpha - 2 };
+          if (n.alpha <= 0) toCloud.push({ x: n.x, y: n.y });
+          return n;
+        })
+        .filter(p => p.alpha > 0);
+
+      if (toCloud.length) setCloudParticles(c => [...c, ...toCloud]);
+      return next;
+    });
+  };
+
+  /* ---------------- clouds (drag + collision) & thunder */
+  const updateClouds = () => {
+    /* drag */
+    setClouds(cl => cl.map(c => {
+      for (const hand of hands) {
+        if (distance(hand.x, hand.y, c.x, c.y) < 50) return { ...c, x: hand.x, y: hand.y };
+      }
+      return (isMouseDown && distance(mousePos.x, mousePos.y, c.x, c.y) < 50)
+        ? { ...c, x: mousePos.x, y: mousePos.y }
+        : c;
+    }));
+
+    /* collision → thunder */
+    if (!thunder.active && clouds.length > 1) {
+      outer: for (let i = 0; i < clouds.length; i++) {
+        for (let j = i + 1; j < clouds.length; j++) {
+          if (distance(clouds[i].x, clouds[i].y, clouds[j].x, clouds[j].y) < 100) {
+            setThunder({ active: true, frames: 30, pos1: clouds[i], pos2: clouds[j] });
+            break outer;
           }
         }
-        return cloud;
-      });
-    }
-
-    // Check for mouse interactions with clouds
-    if (isMouseDown) {
-      updatedClouds = updatedClouds.map(cloud => {
-        if (distance(mousePos.x, mousePos.y, cloud.x, cloud.y) < 50) {
-          return { ...cloud, x: mousePos.x, y: mousePos.y };
-        }
-        return cloud;
-      });
-    }
-
-    // Check for cloud collisions
-    for (let i = 0; i < updatedClouds.length; i++) {
-      for (let j = i + 1; j < updatedClouds.length; j++) {
-        const cloud1 = updatedClouds[i];
-        const cloud2 = updatedClouds[j];
-        
-        if (distance(cloud1.x, cloud1.y, cloud2.x, cloud2.y) < 100) {
-          thunderActivated = true;
-          setThunder({
-            active: true,
-            frames: 30,
-            pos1: { x: cloud1.x, y: cloud1.y },
-            pos2: { x: cloud2.x, y: cloud2.y }
-          });
-          startRain();
-        }
       }
     }
 
-    setClouds(updatedClouds);
-
-    // Update thunder frames
+    /* thunder countdown */
     if (thunder.active) {
-      if (thunder.frames > 0) {
-        setThunder(prev => ({ ...prev, frames: prev.frames - 1 }));
-      } else {
-        setThunder(prev => ({ ...prev, active: false }));
-      }
+      setThunder(t => t.frames > 0 ? { ...t, frames: t.frames - 1 } : { ...t, active: false });
     }
   };
 
-  // Handle rain particles
-  const handleRain = () => {
-    setRainParticles(prev => 
-      prev.map(p => ({
-        ...p,
-        y: p.y + p.speed
-      })).filter(p => p.y < window.innerHeight - LAKE_CONFIG.height)
+  /* ---------------- rain */
+  const updateRain = () => {
+    /* spawn while thunder */
+    if (thunder.active) {
+      setRainParticles(r => [
+        ...r,
+        ...Array.from({ length: 20 }, () => ({ x: Math.random() * window.innerWidth, y: 0, speed: Math.random() * 10 + 5 }))
+      ]);
+    }
+
+    /* fall + clear */
+    setRainParticles(rPrev => rPrev
+      .map(p => ({ ...p, y: p.y + p.speed }))
+      .filter(p => p.y < window.innerHeight - LAKE_CONFIG.height)
     );
 
-    // Reset simulation when rain ends
-    if (rainParticles.length > 0 && rainParticles.every(p => p.y >= window.innerHeight - LAKE_CONFIG.height)) {
-      setClouds([]);
-      setCloudFormed(false);
-      setCloudParticles([]);
+    /* reset after storm */
+    if (rainParticles.length && rainParticles.every(p => p.y >= window.innerHeight - LAKE_CONFIG.height)) {
+      setClouds([]); setCloudParticles([]); setCloudFormed(false);
     }
   };
 
-  // Start rain effect
-  const startRain = () => {
-    const newRainParticles = [...Array(20)].map(() => ({
-      x: Math.random() * window.innerWidth,
-      y: 0,
-      speed: 5 + Math.random() * 10
-    }));
-    setRainParticles(prev => [...prev, ...newRainParticles]);
-  };
+  /* ---------------- waves */
+  const advanceWaves = () =>
+    setWaveOffsets(o => o.map((v, i) => v + WAVE_CONFIGS[i].speed));
 
-  // Update wave offsets
-  const updateWaveOffsets = () => {
-    setWaveOffsets(prev => [
-      prev[0] + 2.5,
-      prev[1] + 2,
-      prev[2] + 1.5,
-      prev[3] + 1.8,
-      prev[4] + 1.2,
-      prev[5] + 0.9
-    ]);
-  };
+  /* ---------------- central loop */
+  useEffect(() => {
+    const loop = () => {
+      updateSun();
+      updateEvaporation();
+      updateClouds();
+      updateRain();
+      advanceWaves();
+      requestAnimationFrame(loop);
+    };
+    requestAnimationFrame(loop);
+  }, [hands, mousePos, isMouseDown, sun, clouds, rainParticles]);
 
-  // Mouse event handlers
-  const handleMouseMove = (e) => {
-    if (containerRef.current) {
-      const rect = containerRef.current.getBoundingClientRect();
-      setMousePos({
-        x: e.clientX - rect.left,
-        y: e.clientY - rect.top
-      });
-    }
-  };
-
-  const handleMouseDown = () => {
-    setIsMouseDown(true);
-  };
-
-  const handleMouseUp = () => {
-    setIsMouseDown(false);
-  };
-
-  // Animation loop
-  useAnimation(() => {
-    handleSunInteraction();
-    handleEvaporation();
-    handleClouds();
-    handleRain();
-    updateWaveOffsets();
-  });
-
+  /* ---------------- render */
   return (
-    <div 
-      ref={containerRef}
-      style={{
-        position: 'relative',
-        width: '100vw',
-        height: '100vh',
-        overflow: 'hidden',
-        backgroundColor: '#87CEEB'
-      }}
-      onMouseMove={handleMouseMove}
-      onMouseDown={handleMouseDown}
-      onMouseUp={handleMouseUp}
-      onMouseLeave={handleMouseUp}
-    >
-      <div style={{
-        position: 'absolute',
-        top: 0,
-        left: 0,
-        width: '100%',
-        height: '100%',
-        overflow: 'hidden'
-      }}>
-        <img 
-          src="/assests/images/mountain.jpg" 
-          alt="background" 
-          style={{
-            position: 'absolute',
-            top: 0,
-            left: 0,
-            width: '100%',
-            height: '75%',
-            objectFit: 'cover',
-            objectPosition: 'center bottom'
-          }} 
-        />
-      </div>
-      
-      <AudioManager 
-        cloudFormed={cloudFormed} 
-        rainParticles={rainParticles} 
-        vaporParticles={vaporParticles} 
-      />
-      
-      {WAVE_CONFIGS.map((config, i) => (
-        <Wave 
-          key={i} 
-          offset={waveOffsets[i]} 
-          {...config} 
-        />
-      ))}
-      
+    <div ref={wrapRef}
+         onMouseMove={onMove}
+         onMouseDown={() => setIsMouseDown(true)}
+         onMouseUp  ={() => setIsMouseDown(false)}
+         onMouseLeave={() => setIsMouseDown(false)}
+         style={{ position:'relative', width:'100vw', height:'100vh', overflow:'hidden', background:'#87CEEB' }}>
+
+      {/* sky & mountain backdrop */}
+      <div style={{ position:'absolute', inset:0, background:'linear-gradient(to top,#87CEEB 0%,#fff 100%)', zIndex:-2 }} />
+      <img src="/assests/images/mountain.jpg"
+           alt="mountain"
+           style={{ position:'absolute', bottom:LAKE_CONFIG.height+40, width:'100%', objectFit:'cover', zIndex:-1 }} />
+
+      <AudioManager cloudFormed={cloudFormed} rainParticles={rainParticles} vaporParticles={vaporParticles}/>
+
+      {WAVE_CONFIGS.map((cfg,i)=><Wave key={i} offset={waveOffsets[i]} {...cfg}/> )}
       <Lake />
-      
-      <Sun 
-        x={sun.x} 
-        y={sun.y} 
-        size={sun.size} 
-        isDragging={sun.isDragging} 
-      />
-      
-      {clouds.map((cloud, i) => (
-        <Cloud 
-          key={i} 
-          x={cloud.x} 
-          y={cloud.y} 
-          onDrag={(x, y) => {
-            const updatedClouds = [...clouds];
-            updatedClouds[i] = { x, y };
-            setClouds(updatedClouds);
-          }} 
-        />
-      ))}
-      
-      {vaporParticles.map((particle, i) => (
-        <VaporParticle 
-          key={`vapor-${i}`} 
-          x={particle.x} 
-          y={particle.y} 
-          alpha={particle.alpha} 
-        />
-      ))}
-      
-      {rainParticles.map((particle, i) => (
-        <RainParticle 
-          key={`rain-${i}`} 
-          x={particle.x} 
-          y={particle.y} 
-        />
-      ))}
-      
-      {thunder.active && (
-        <Thunder 
-          pos1={thunder.pos1} 
-          pos2={thunder.pos2} 
-        />
-      )}
-      
-      <GuideArrows 
-        sun={sun} 
-        cloudFormed={cloudFormed} 
-        rainParticles={rainParticles} 
-      />
+      <Sun {...sun} />
+      {clouds.map((c,i)=><Cloud key={i} x={c.x} y={c.y}/> )}
+      {vaporParticles.map((p,i)=><VaporParticle key={i} x={p.x} y={p.y} alpha={p.alpha}/> )}
+      {rainParticles .map((p,i)=><RainParticle  key={i} x={p.x} y={p.y}/> )}
+      {thunder.active && <Thunder pos1={thunder.pos1} pos2={thunder.pos2}/>}
+
+      <GuideArrows sun={sun} cloudFormed={cloudFormed} rainParticles={rainParticles} />
+
+      {/* toast */}
+      {!cloudFormed && cloudParticles.length>120 &&
+        <div style={{ position:'absolute', top:15, left:'50%', transform:'translateX(-50%)',
+                      padding:'6px 18px', borderRadius:12, background:'rgba(0,0,0,0.55)', color:'#fff'}}>
+          Cloud forming… ☁️
+        </div>}
     </div>
   );
-};
-
-export default WaterCycleSimulation;
+}
